@@ -1,0 +1,20 @@
+#!/bin/sh
+# DEB post-installation script
+
+set -e
+
+case "$1" in
+    configure)
+        # Reload systemd and enable service
+        systemctl daemon-reload || true
+        systemctl enable space-ambient.service || true
+        
+        # Check if user wants to start the service
+        if [ -z "$2" ] || [ "$2" = "configured" ]; then
+            echo "Space Ambient service installed and enabled."
+            echo "To start the service run: systemctl --user start space-ambient.service"
+        fi
+        ;;
+esac
+
+exit 0

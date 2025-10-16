@@ -1,0 +1,19 @@
+#!/bin/sh
+# Universal post-installation script for RPM and DEB
+set -e
+if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ] || [ -f /etc/centos-release ]; then
+    systemctl daemon-reload
+    systemctl enable space-ambient.service
+    systemctl start space-ambient.service
+    echo "Space Ambient service installed, enabled and started."
+elif [ -f /etc/debian_version ]; then
+    systemctl daemon-reload
+    systemctl enable space-ambient.service
+    systemctl start space-ambient.service
+    echo "Space Ambient service installed, enabled and started."
+else
+    echo "Unknown distribution. Please manually enable and start the service:"
+    echo "systemctl enable space-ambient.service"
+    echo "systemctl start space-ambient.service"
+fi
+exit 0

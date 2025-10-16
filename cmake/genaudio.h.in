@@ -1,0 +1,18 @@
+#pragma once
+#include <vector>
+#include <cstdint>
+
+@HEADER_LIST@
+
+struct AudioData {
+    const uint8_t* data;
+    size_t size;
+    size_t position;
+};
+
+extern std::vector<AudioData> audio_files;
+
+void init_audio_files(){
+    AudioData tm_data = {};
+    @DATA_INITER@
+}

@@ -1,0 +1,14 @@
+#!/bin/sh
+# DEB pre-remove script
+
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop and disable service before removal
+        systemctl --user stop space-ambient.service || true
+        systemctl disable space-ambient.service || true
+        ;;
+esac
+
+exit 0

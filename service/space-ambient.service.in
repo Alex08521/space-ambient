@@ -1,0 +1,14 @@
+[Unit]
+Description=Space Ambient Music Daemon
+After=sound.target graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/@PROJECT_NAME@
+Restart=always
+RestartSec=5
+Environment=QT_QPA_PLATFORM=wayland
+
+[Install]
+WantedBy=multi-user.target
