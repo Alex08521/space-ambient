@@ -90,7 +90,7 @@ install(TARGETS ${PROJECT_NAME}
         WORLD_READ WORLD_EXECUTE
 )
 install(FILES "${CMAKE_BINARY_DIR}/space-ambient.service"
-    DESTINATION /usr/lib/systemd/system
+    DESTINATION /usr/lib/systemd/user
 )
 install(FILES 
     "${CMAKE_SOURCE_DIR}/cmake/postinst"

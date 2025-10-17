@@ -1,6 +1,6 @@
 #!/bin/sh
 # Universal pre-remove script for RPM and DEB
 set -e
-systemctl stop space-ambient.service || true
-systemctl disable space-ambient.service || true
+systemctl --user stop space-ambient.service || true
+systemctl --user disable space-ambient.service || true
 exit 0
