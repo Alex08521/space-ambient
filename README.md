@@ -11,7 +11,7 @@ To check the service status, run
 systemctl --user status space-ambient.service
 ```
 
-To add your own music, add it to the project /data directory in .ogg/.oga format and run build.sh
+To add your own music, add it to the project /data directory in .oga format and run build.sh
 
 Enjoy using it!
 
@@ -28,6 +28,6 @@ systemctl --user start space-ambient.service
 systemctl --user status space-ambient.service
 ```
 
-Для добавления своей музыки нужно добавить её в формате .ogg/.oga в директорию проекта /data и запустить build.sh
+Для добавления своей музыки нужно добавить её в формате .oga в директорию проекта /data и запустить build.sh
 
 Приятного использования!
