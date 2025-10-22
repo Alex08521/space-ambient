@@ -9,7 +9,6 @@
 #include <pulse/pulseaudio.h>
 #include <pulse/def.h>
 #include <vorbis/vorbisfile.h>
-#include <cerrno>
 #include <thread>
 #include <string>
 #include <random>
@@ -183,10 +182,11 @@ void signal_handler(int sig) {
 static size_t read_func(void* ptr, size_t size, size_t nmemb, void* datasource) {
     AudioData* ad = static_cast<AudioData*>(datasource);
     size_t bytes_to_read = size * nmemb;
-    
-    if(ad->position + bytes_to_read > ad->size)
+
+    if(ad->position + bytes_to_read > ad->size) {
         bytes_to_read = ad->size - ad->position;
-    
+    }
+
     if (bytes_to_read > 0) {
         memcpy(ptr, ad->data + ad->position, bytes_to_read);
         ad->position += bytes_to_read;
@@ -196,111 +196,171 @@ static size_t read_func(void* ptr, size_t size, size_t nmemb, void* datasource) 
 
 static int seek_func(void* datasource, ogg_int64_t offset, int whence) {
     AudioData* ad = static_cast<AudioData*>(datasource);
-    
+    size_t new_pos = ad->position;
+
     switch(whence) {
-        case SEEK_SET: 
-            ad->position = (offset <= 0) ? 0 : 
-                         ((size_t)offset > ad->size) ? ad->size : (size_t)offset;
+        case SEEK_SET:
+            if (offset < 0) {
+                new_pos = 0;
+            } else if (static_cast<size_t>(offset) > ad->size) {
+                new_pos = ad->size;
+            } else {
+                new_pos = static_cast<size_t>(offset);
+            }
             break;
-        case SEEK_CUR: 
-            ad->position = (ad->position + offset <= 0) ? 0 :
-                         ((ad->position + offset) > ad->size) ? ad->size : (ad->position + offset);
+        case SEEK_CUR:
+            if (offset < 0) {
+                if (static_cast<size_t>(-offset) > ad->position) {
+                    new_pos = 0;
+                } else {
+                    new_pos = ad->position - static_cast<size_t>(-offset);
+                }
+            } else {
+                if (ad->position > ad->size - static_cast<size_t>(offset)) {
+                    new_pos = ad->size;
+                } else {
+                    new_pos = ad->position + static_cast<size_t>(offset);
+                }
+            }
             break;
-        case SEEK_END: 
-            ad->position = (ad->size + offset <= 0) ? 0 :
-                         ((ad->size + offset) > ad->size) ? ad->size : (ad->size + offset);
+        case SEEK_END:
+            if (offset < 0) {
+                if (static_cast<size_t>(-offset) > ad->size) {
+                    new_pos = 0;
+                } else {
+                    new_pos = ad->size - static_cast<size_t>(-offset);
+                }
+            } else {
+                if (ad->size > ad->size - static_cast<size_t>(offset)) {
+                    if (ad->size < static_cast<size_t>(offset)) {
+                        new_pos = 0;
+                    } else {
+                        new_pos = ad->size + static_cast<size_t>(offset);
+                        if (new_pos > ad->size) new_pos = ad->size;
+                    }
+                } else {
+                    new_pos = ad->size + static_cast<size_t>(offset);
+                    if (new_pos > ad->size) new_pos = ad->size;
+                }
+            }
             break;
     }
-    
+    ad->position = new_pos;
     return 0;
 }
 
-static long tell_func(void* datasource) {
+static ogg_int64_t tell_func(void* datasource) {
     AudioData* ad = static_cast<AudioData*>(datasource);
-    return ad->position;
+    return static_cast<ogg_int64_t>(ad->position);
 }
 
 void play_track(int start_track) {
     current_track = start_track;
-    
+
     while (keep_running) {
         if (current_track < 0 || static_cast<size_t>(current_track) >= audio_files.size()) {
-            std::cerr << "Неверный индекс трека: " << current_track 
-                      << "; всего треков: " << audio_files.size() << std::endl;
+            std::cerr << "Неверный индекс трека: " << current_track
+            << "; всего треков: " << audio_files.size() << std::endl;
             current_track = 0;
             if (audio_files.empty() || static_cast<size_t>(current_track) >= audio_files.size()) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }
         }
-        
-        OggVorbis_File vf;
-        ov_callbacks callbacks = {read_func, seek_func, nullptr, tell_func};
-        if(ov_open_callbacks(&audio_files[current_track], &vf, nullptr, 0, callbacks) < 0) {
-            std::cerr << "Ошибка открытия трека " << current_track << std::endl;
-            if (audio_files.size() > 1) {
-                std::random_device rd;
-                std::mt19937 gen(rd());
-                std::uniform_int_distribution<> dis(0, audio_files.size() - 1);
-                current_track = dis(gen);
-            } else {
-                current_track = 0;
+
+        bool track_finished = false;
+        while (keep_running && !track_finished) {
+            audio_files[current_track].position = 0;
+
+            OggVorbis_File* vf_ptr = new OggVorbis_File();
+
+            ov_callbacks callbacks = {read_func, seek_func, nullptr, tell_func};
+            if(ov_open_callbacks(&audio_files[current_track], vf_ptr, nullptr, 0, callbacks) < 0) {
+                std::cerr << "Ошибка открытия трека " << current_track << " (внутренний цикл). Position после сброса: " << audio_files[current_track].position << std::endl;
+                delete vf_ptr;
+                if (audio_files.size() > 1) {
+                    std::random_device rd;
+                    std::mt19937 gen(rd());
+                    std::uniform_int_distribution<> dis(0, audio_files.size() - 1);
+                    current_track = dis(gen);
+                } else {
+                    current_track = 0;
+                }
+                break;
             }
-            continue;
-        }
-        
-        pa_sample_spec spec;
-        spec.format = PA_SAMPLE_S16LE;
-        spec.rate = 44100;
-        spec.channels = 2;
-        pa_simple* s = nullptr;
-        char buffer[4096];
-        int current_section;
-        bool was_playing = true;
-        
-        while(keep_running) {
-            if (!is_playing) {
-                if (was_playing) {
-                    std::cout << "Пауза: обнаружены другие звуковые потоки" << std::endl;
-                    was_playing = false;
-                    if (s) {
-                        pa_simple_free(s);
-                        s = nullptr;
+
+            pa_sample_spec spec;
+            spec.format = PA_SAMPLE_S16LE;
+            spec.rate = 44100;
+            spec.channels = 2;
+            pa_simple* s = nullptr;
+            char buffer[4096];
+            int current_section;
+            bool was_playing = true;
+
+            while(keep_running) {
+                if (!is_playing) {
+                    if (was_playing) {
+                        std::cout << "Пауза: обнаружены другие звуковые потоки" << std::endl;
+                        was_playing = false;
+                        if (s) {
+                            pa_simple_free(s);
+                            s = nullptr;
+                        }
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    continue;
+                }
+                if (!was_playing) {
+                    std::cout << "Возобновление воспроизведения" << std::endl;
+                    was_playing = true;
+                }
+                if (!s) {
+                    s = pa_simple_new(
+                        nullptr,
+                        "Space Ambient Daemon",
+                        PA_STREAM_PLAYBACK,
+                        nullptr,
+                        "BackgroundDesktopSound",
+                        &spec,
+                        nullptr,
+                        nullptr,
+                        nullptr
+                    );
+                    if (!s) {
+                        std::cerr << "Ошибка создания PulseAudio соединения" << std::endl;
+                        ov_clear(vf_ptr);
+                        delete vf_ptr;
+                        break;
                     }
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                continue;
-            }
-            if (!was_playing) {
-                std::cout << "Возобновление воспроизведения" << std::endl;
-                was_playing = true;
-            }
-            if (!s) {
-                s = pa_simple_new(
-                    nullptr, 
-                    "Space Ambient Daemon", 
-                    PA_STREAM_PLAYBACK,
-                    nullptr, 
-                    "BackgroundDesktopSound", 
-                    &spec, 
-                    nullptr, 
-                    nullptr, 
-                    nullptr
-                );
-                if (!s) {
-                    std::cerr << "Ошибка создания PulseAudio соединения" << std::endl;
-                    ov_clear(&vf);
+
+                long ret = ov_read(vf_ptr, buffer, sizeof(buffer), 0, 2, 1, &current_section);
+                if(ret > 0) {
+                    if(pa_simple_write(s, buffer, ret, nullptr) < 0) {
+                        std::cerr << "Ошибка воспроизведения аудио" << std::endl;
+                        break;
+                    }
+                } else if (ret == 0) {
+                    std::cout << "Трек завершен, готовимся к смене трека." << std::endl;
+                    track_finished = true;
+                    break;
+                } else {
+                    std::cerr << "Ошибка чтения аудио данных: " << ret << std::endl;
                     break;
                 }
             }
-            long ret = ov_read(&vf, buffer, sizeof(buffer), 0, 2, 1, &current_section);
-            if(ret > 0) {
-                if(pa_simple_write(s, buffer, ret, nullptr) < 0) {
-                    std::cerr << "Ошибка воспроизведения аудио" << std::endl;
-                    break;
-                }
-            } else if (ret == 0) {
-                std::cout << "Трек завершен, переходим к случайному треку" << std::endl;
+
+            if (s) {
+                pa_simple_drain(s, nullptr);
+                pa_simple_free(s);
+            }
+
+            ov_clear(vf_ptr);
+            delete vf_ptr;
+
+            if (track_finished) {
+                std::cout << "Выбираем следующий трек." << std::endl;
                 if (audio_files.size() > 1) {
                     std::random_device rd;
                     std::mt19937 gen(rd());
@@ -309,26 +369,10 @@ void play_track(int start_track) {
                 } else {
                     current_track = 0;
                 }
-                break;
-            } else {
-                std::cerr << "Ошибка чтения аудио данных" << std::endl;
-                if (audio_files.size() > 1) {
-                    std::random_device rd;
-                    std::mt19937 gen(rd());
-                    std::uniform_int_distribution<> dis(0, audio_files.size() - 1);
-                    current_track = dis(gen);
-                } else {
-                    current_track = 0;
-                }
-                break;
+                track_finished = false;
             }
+
         }
-        
-        if (s) {
-            pa_simple_drain(s, nullptr);
-            pa_simple_free(s);
-        }
-        ov_clear(&vf);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
