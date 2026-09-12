@@ -17,6 +17,7 @@ sudo pacman -Syu --noconfirm \
     cmake \
     make \
     gcc \
+    extra-cmake-modules \
     qt6-base \
     qt6-tools \
     kwindowsystem \
